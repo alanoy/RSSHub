@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 process.env.OPENAI_API_KEY = 'sk-1234567890';
 process.env.OPENAI_API_ENDPOINT = 'https://api.openai.mock/v1';
 
-vi.mock('@/utils/request-rewriter', () => ({ default: null }));
 const { config } = await import('@/config');
 const { default: app } = await import('@/app');
 const { default: parameter } = await import('@/middleware/parameter');
@@ -662,5 +661,49 @@ describe('entities', () => {
         expect(data.title).toBe('Feed\u{A0}Title & More');
         expect(data.description).toBe('Feed…');
         expect(data.item[0].title).toBe('Item’s ’ &notify ?a=1&lt=2');
+    });
+});
+
+const makeImageData = () => ({
+    image: 'https://example.com/logo.png',
+    item: [
+        {
+            title: 'Post',
+            link: 'https://example.com/post',
+            description:
+                '<p>Text</p><picture><source srcset="https://example.com/a.webp"><img src="https://example.com/a.png"></picture><video src="https://example.com/a.mp4" poster="https://example.com/a.jpg"></video><audio src="https://example.com/a.mp3"></audio>',
+            image: 'https://example.com/a.png',
+            banner: 'https://example.com/banner.png',
+            itunes_item_image: 'https://example.com/art.png',
+            enclosure_url: 'https://example.com/a.png',
+            enclosure_type: 'image/png',
+            enclosure_length: 10,
+            attachments: [
+                { url: 'https://example.com/a.png', mime_type: 'image/png' },
+                { url: 'https://example.com/a.mp3', mime_type: 'audio/mpeg' },
+            ],
+            media: { thumbnail: { url: 'https://example.com/a.png' } },
+        },
+    ],
+});
+
+describe('show_image', () => {
+    it('removes pictures and artwork while retaining text, video and audio', async () => {
+        const data = await runMiddleware(makeImageData(), { show_image: 'false' });
+        expect(data.image).toBeUndefined();
+        expect(data.item[0].description).not.toMatch(/<img|<picture|poster=/);
+        expect(data.item[0].description).toContain('<p>Text</p>');
+        expect(data.item[0].description).toContain('a.mp4');
+        expect(data.item[0].image).toBeUndefined();
+        expect(data.item[0].itunes_item_image).toBeUndefined();
+        expect(data.item[0].enclosure_url).toBeUndefined();
+        expect(data.item[0].attachments).toHaveLength(1);
+        expect(data.item[0].attachments[0].mime_type).toBe('audio/mpeg');
+        expect(data.item[0].media.thumbnail).toBeUndefined();
+    });
+    it('keeps images by default', async () => {
+        const data = await runMiddleware(makeImageData(), {});
+        expect(data.item[0].description).toContain('<img');
+        expect(data.item[0].image).toBe('https://example.com/a.png');
     });
 });
