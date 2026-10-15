@@ -10,6 +10,7 @@ import sanitizeHtml from 'sanitize-html';
 
 import { config } from '@/config';
 import type { Data, DataItem } from '@/types';
+import { extractAttachments } from '@/utils/attachments';
 import cache from '@/utils/cache';
 import { isWorker } from '@/utils/is-worker';
 import ofetch from '@/utils/ofetch';
@@ -82,11 +83,13 @@ const middleware: MiddlewareHandler = async (ctx, next) => {
         data.description &&= decodeHTMLStrict(data.description + '');
 
         // sort items
-        if (ctx.req.query('sorted') !== 'false') {
+        const sorted = ctx.req.query('sorted');
+        if (sorted === undefined ? data.sortItems !== false : sorted !== 'false') {
             data.item = data.item.toSorted((a: DataItem, b: DataItem) => +new Date(b.pubDate || 0) - +new Date(a.pubDate || 0));
         }
 
         const hideImages = ctx.req.query('show_image') === 'false';
+        const extractEnclosures = ctx.req.query('enclosure') === 'true';
         if (hideImages) {
             delete data.image;
         }
@@ -187,6 +190,10 @@ const middleware: MiddlewareHandler = async (ctx, next) => {
                         $(elem).attr('referrerpolicy', 'no-referrer');
                     }
                 });
+
+                if (extractEnclosures) {
+                    item.attachments = extractAttachments($, item, hideImages);
+                }
 
                 item.description = $('body').html() + '' + (config.suffix || '');
 
@@ -314,8 +321,9 @@ const middleware: MiddlewareHandler = async (ctx, next) => {
         }
 
         // limit
-        if (ctx.req.query('limit')) {
-            data.item = data.item.slice(0, Number.parseInt(ctx.req.query('limit')!));
+        const limit = Number.parseInt(ctx.req.query('limit') ?? '');
+        if (limit >= 0) {
+            data.item = data.item.slice(0, limit);
         }
 
         // telegram instant view
@@ -353,6 +361,9 @@ const middleware: MiddlewareHandler = async (ctx, next) => {
 
                 item.author = author || parsed_result?.author;
                 item.description = parsed_result && parsed_result.content.length > 40 ? decodeHTMLStrict(parsed_result.content) : description;
+                if (extractEnclosures && parsed_result?.content.length > 40 && item.description) {
+                    item.attachments = extractAttachments(load(item.description), item, hideImages);
+                }
             });
             await Promise.all(tasks);
         }
